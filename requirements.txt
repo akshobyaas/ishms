@@ -1,0 +1,5 @@
+django>=4.2,<5.0
+psutil>=5.9
+requests>=2.31
+pandas>=2.0
+scikit-learn>=1.3

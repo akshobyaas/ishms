@@ -1,0 +1,731 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Server Telemetry Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
+  <style>
+    :root {
+      --bg-base:   #0d1117; --bg-card:  #161b22; --bg-card2: #1c2433;
+      --border:    #30363d; --accent:   #58a6ff; --accent2:  #3fb950;
+      --warn:      #d29922; --danger:   #f85149; --purple:   #bc8cff;
+      --text:      #e6edf3; --muted:    #8b949e;
+      --cpu-color: #58a6ff; --mem-color:#3fb950; --temp-color:#d29922; --pwr-color:#bc8cff;
+      --radius:12px; --shadow:0 4px 24px rgba(0,0,0,.5);
+    }
+    *{box-sizing:border-box;margin:0;padding:0;}
+    body{background:var(--bg-base);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;display:flex;min-height:100vh;}
+
+    /* SIDEBAR */
+    .sidebar{width:240px;min-height:100vh;background:var(--bg-card);border-right:1px solid var(--border);padding:24px 0;position:fixed;left:0;top:0;display:flex;flex-direction:column;z-index:10;}
+    .sidebar-logo{padding:0 20px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;}
+    .sidebar-logo .logo-icon{width:36px;height:36px;background:linear-gradient(135deg,var(--accent),var(--purple));border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:18px;}
+    .sidebar-logo h1{font-size:15px;font-weight:700;line-height:1.2;}
+    .sidebar-logo span{font-size:11px;color:var(--muted);}
+    .sidebar-nav{padding:16px 12px;flex:1;}
+    .nav-label{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);padding:8px 8px 4px;}
+    .nav-item{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:8px;cursor:pointer;color:var(--muted);font-size:14px;transition:all .15s;margin-bottom:2px;border:none;background:none;width:100%;text-align:left;}
+    .nav-item:hover,.nav-item.active{background:rgba(88,166,255,.1);color:var(--accent);}
+    .nav-item i{width:16px;}
+    .live-badge{margin-left:auto;font-size:10px;background:rgba(63,185,80,.15);color:var(--accent2);padding:2px 7px;border-radius:20px;border:1px solid rgba(63,185,80,.3);}
+    .sidebar-bottom{padding:16px 20px;border-top:1px solid var(--border);}
+    .interval-control{display:flex;align-items:center;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:8px;}
+    .interval-control select{background:var(--bg-base);border:1px solid var(--border);color:var(--text);padding:3px 6px;border-radius:6px;font-size:12px;}
+    .status-dot{width:8px;height:8px;border-radius:50%;background:var(--accent2);display:inline-block;animation:pulse 2s infinite;}
+    @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.4;}}
+
+    /* MAIN */
+    .main{margin-left:240px;flex:1;display:flex;flex-direction:column;}
+    .topbar{background:var(--bg-card);border-bottom:1px solid var(--border);padding:16px 28px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:5;}
+    .topbar h2{font-size:18px;font-weight:600;}
+    .topbar-right{display:flex;align-items:center;gap:12px;font-size:13px;color:var(--muted);}
+    #status-banner{padding:6px 16px;border-radius:20px;font-size:13px;font-weight:600;transition:all .3s;}
+    .status-normal{background:rgba(63,185,80,.15);color:var(--accent2);border:1px solid rgba(63,185,80,.3);}
+    .status-warn{background:rgba(210,153,34,.15);color:var(--warn);border:1px solid rgba(210,153,34,.3);}
+    .status-danger{background:rgba(248,81,73,.15);color:var(--danger);border:1px solid rgba(248,81,73,.3);}
+    .content{padding:28px;}
+
+    /* METRIC CARDS */
+    .metric-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px;}
+    .metric-card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:20px;position:relative;overflow:hidden;transition:transform .2s,box-shadow .2s;}
+    .metric-card:hover{transform:translateY(-2px);box-shadow:var(--shadow);}
+    .metric-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;}
+    .metric-card.cpu::before{background:var(--cpu-color);}
+    .metric-card.memory::before{background:var(--mem-color);}
+    .metric-card.temp::before{background:var(--temp-color);}
+    .metric-card.power::before{background:var(--pwr-color);}
+    .metric-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:8px;display:flex;align-items:center;gap:6px;}
+    .metric-label i{font-size:12px;}
+    .cpu-i{color:var(--cpu-color);} .mem-i{color:var(--mem-color);} .temp-i{color:var(--temp-color);} .power-i{color:var(--pwr-color);}
+    .metric-value{font-size:32px;font-weight:700;letter-spacing:-1px;line-height:1;margin-bottom:8px;}
+    .metric-unit{font-size:14px;font-weight:400;color:var(--muted);}
+    .metric-bar{height:4px;background:var(--bg-base);border-radius:2px;overflow:hidden;}
+    .metric-bar-fill{height:100%;border-radius:2px;transition:width .5s ease;}
+    .cpu .metric-bar-fill{background:var(--cpu-color);} .memory .metric-bar-fill{background:var(--mem-color);}
+    .temp .metric-bar-fill{background:var(--temp-color);} .power .metric-bar-fill{background:var(--pwr-color);}
+
+    /* CHARTS */
+    .charts-grid{display:grid;grid-template-columns:2fr 1fr;gap:16px;margin-bottom:24px;}
+    .card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:20px;}
+    .card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;}
+    .card-title{font-size:14px;font-weight:600;display:flex;align-items:center;gap:8px;}
+    .card-title i{color:var(--accent);}
+    .time-pill{display:flex;gap:4px;}
+    .time-pill button{background:var(--bg-base);border:1px solid var(--border);color:var(--muted);font-size:11px;padding:3px 10px;border-radius:20px;cursor:pointer;transition:all .15s;}
+    .time-pill button.active,.time-pill button:hover{background:var(--accent);color:white;border-color:var(--accent);}
+    .chart-wrap{position:relative;}
+
+    /* BOTTOM PANELS */
+    .bottom-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px;}
+    .diagnosis-item{display:flex;align-items:flex-start;gap:12px;padding:12px 0;border-bottom:1px solid var(--border);}
+    .diagnosis-item:last-child{border-bottom:none;}
+    .diag-icon{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;}
+    .diag-icon.green{background:rgba(63,185,80,.15);color:var(--accent2);}
+    .diag-icon.blue{background:rgba(88,166,255,.15);color:var(--accent);}
+    .diag-icon.orange{background:rgba(210,153,34,.15);color:var(--warn);}
+    .diag-icon.red{background:rgba(248,81,73,.15);color:var(--danger);}
+    .diag-label{font-size:11px;color:var(--muted);margin-bottom:2px;}
+    .diag-value{font-size:14px;font-weight:600;}
+
+    /* ANOMALY TABLE */
+    .anomaly-table{width:100%;border-collapse:collapse;font-size:13px;}
+    .anomaly-table th{text-align:left;color:var(--muted);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;padding:0 8px 12px;}
+    .anomaly-table td{padding:10px 8px;border-top:1px solid var(--border);vertical-align:middle;}
+    .anomaly-table tr:hover td{background:rgba(255,255,255,.02);}
+    .badge{display:inline-block;font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px;}
+    .badge-danger{background:rgba(248,81,73,.15);color:var(--danger);border:1px solid rgba(248,81,73,.3);}
+    .badge-warn{background:rgba(210,153,34,.15);color:var(--warn);border:1px solid rgba(210,153,34,.3);}
+    .badge-normal{background:rgba(63,185,80,.15);color:var(--accent2);border:1px solid rgba(63,185,80,.3);}
+    .badge-info{background:rgba(88,166,255,.15);color:var(--accent);border:1px solid rgba(88,166,255,.3);}
+
+    /* HISTORY PAGE */
+    .history-toolbar{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center;}
+    .history-toolbar input,.history-toolbar select{background:var(--bg-base);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:8px;font-size:13px;}
+    .history-toolbar input{flex:1;min-width:160px;}
+    .history-toolbar input:focus,.history-toolbar select:focus{outline:none;border-color:var(--accent);}
+    .pagination{display:flex;align-items:center;gap:8px;margin-top:16px;font-size:13px;color:var(--muted);}
+    .pagination button{background:var(--bg-base);border:1px solid var(--border);color:var(--text);padding:5px 12px;border-radius:6px;cursor:pointer;transition:all .15s;}
+    .pagination button:hover:not(:disabled){border-color:var(--accent);color:var(--accent);}
+    .pagination button:disabled{opacity:.35;cursor:not-allowed;}
+
+    /* FORMS */
+    .tools-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px;}
+    .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;}
+    .form-group label{display:block;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;}
+    .form-group input{width:100%;background:var(--bg-base);border:1px solid var(--border);color:var(--text);padding:9px 12px;border-radius:8px;font-size:14px;transition:border-color .15s;}
+    .form-group input:focus{outline:none;border-color:var(--accent);}
+    .btn{padding:9px 20px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;border:none;transition:all .15s;display:inline-flex;align-items:center;gap:8px;}
+    .btn-primary{background:var(--accent);color:white;}
+    .btn-primary:hover{background:#79b8ff;}
+    .btn-secondary{background:var(--bg-base);border:1px solid var(--border);color:var(--text);}
+    .btn-secondary:hover{border-color:var(--accent);color:var(--accent);}
+    .btn-success{background:var(--accent2);color:white;}
+    .btn-success:hover{background:#56d364;}
+    #test-result{margin-top:12px;padding:12px 16px;border-radius:8px;font-size:13px;display:none;}
+    .upload-zone{border:2px dashed var(--border);border-radius:8px;padding:32px;text-align:center;cursor:pointer;transition:all .2s;color:var(--muted);}
+    .upload-zone:hover{border-color:var(--accent);color:var(--accent);background:rgba(88,166,255,.04);}
+    .upload-zone i{font-size:28px;margin-bottom:8px;display:block;}
+    .upload-zone p{font-size:13px;}
+    #upload-result{margin-top:12px;font-size:13px;}
+
+    /* TOAST NOTIFICATIONS */
+    #toast-container{position:fixed;top:20px;right:20px;z-index:9999;display:flex;flex-direction:column;gap:10px;pointer-events:none;}
+    .toast{background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:14px 18px;min-width:280px;max-width:360px;box-shadow:0 8px 32px rgba(0,0,0,.6);pointer-events:all;animation:toastIn .3s ease;display:flex;align-items:flex-start;gap:12px;}
+    .toast.removing{animation:toastOut .3s ease forwards;}
+    @keyframes toastIn{from{opacity:0;transform:translateX(40px);}to{opacity:1;transform:translateX(0);}}
+    @keyframes toastOut{from{opacity:1;transform:translateX(0);}to{opacity:0;transform:translateX(40px);}}
+    .toast-icon{font-size:20px;flex-shrink:0;margin-top:1px;}
+    .toast-body{flex:1;}
+    .toast-title{font-size:13px;font-weight:700;margin-bottom:2px;}
+    .toast-msg{font-size:12px;color:var(--muted);}
+    .toast-close{background:none;border:none;color:var(--muted);cursor:pointer;font-size:14px;padding:0;line-height:1;}
+    .toast-close:hover{color:var(--text);}
+    .toast.danger{border-left:3px solid var(--danger);}
+    .toast.warn{border-left:3px solid var(--warn);}
+    .toast.success{border-left:3px solid var(--accent2);}
+    .toast-progress{height:3px;background:var(--border);border-radius:0 0 8px 8px;margin:-14px -18px 0;margin-top:10px;overflow:hidden;}
+    .toast-progress-bar{height:100%;transition:width linear;}
+    .toast.danger .toast-progress-bar{background:var(--danger);}
+    .toast.warn .toast-progress-bar{background:var(--warn);}
+    .toast.success .toast-progress-bar{background:var(--accent2);}
+
+    /* MISC */
+    ::-webkit-scrollbar{width:6px;height:6px;}
+    ::-webkit-scrollbar-track{background:var(--bg-base);}
+    ::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px;}
+    .empty-state{text-align:center;padding:40px;color:var(--muted);font-size:13px;}
+    .empty-state i{font-size:32px;margin-bottom:10px;display:block;}
+    .section{display:none;}
+    .section.active{display:block;}
+  </style>
+</head>
+<body>
+
+<!-- TOAST CONTAINER -->
+<div id="toast-container"></div>
+
+<!-- SIDEBAR -->
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <div class="logo-icon">⚡</div>
+    <div><h1>TelemetryOS</h1><span>Server Monitor</span></div>
+  </div>
+  <nav class="sidebar-nav">
+    <div class="nav-label">Monitor</div>
+    <button class="nav-item active" onclick="showSection('overview',this)">
+      <i class="fa-solid fa-gauge-high"></i> Overview
+      <span class="live-badge">LIVE</span>
+    </button>
+    <button class="nav-item" onclick="showSection('anomalies',this)">
+      <i class="fa-solid fa-triangle-exclamation"></i> Anomalies
+    </button>
+    <button class="nav-item" onclick="showSection('history',this)">
+      <i class="fa-solid fa-clock-rotate-left"></i> History
+    </button>
+    <div class="nav-label" style="margin-top:12px">Tools</div>
+    <button class="nav-item" onclick="showSection('manual-test',this)">
+      <i class="fa-solid fa-flask"></i> Manual Test
+    </button>
+    <button class="nav-item" onclick="showSection('csv-upload',this)">
+      <i class="fa-solid fa-file-csv"></i> Upload CSV
+    </button>
+  </nav>
+  <div class="sidebar-bottom">
+    <div class="interval-control">
+      <span>Refresh</span>
+      <select id="interval-select" onchange="changeInterval(this.value)">
+        <option value="2000">2s</option>
+        <option value="5000">5s</option>
+        <option value="10000">10s</option>
+      </select>
+    </div>
+    <div style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px;">
+      <span class="status-dot"></span> Live collection active
+    </div>
+  </div>
+</aside>
+
+<!-- MAIN -->
+<main class="main">
+  <header class="topbar">
+    <h2 id="section-title">📊 Overview</h2>
+    <div class="topbar-right">
+      <span id="last-updated" style="font-size:12px;">—</span>
+      <a href="/api/export/" class="btn btn-success" style="padding:6px 14px;font-size:12px;text-decoration:none;">
+        <i class="fa-solid fa-download"></i> Export CSV
+      </a>
+      <span id="status-banner" class="status-normal">● Normal</span>
+    </div>
+  </header>
+
+  <div class="content">
+
+    <!-- OVERVIEW -->
+    <div class="section active" id="section-overview">
+      <div class="metric-grid">
+        <div class="metric-card cpu">
+          <div class="metric-label"><i class="fa-solid fa-microchip cpu-i"></i> CPU Usage</div>
+          <div class="metric-value"><span id="val-cpu">—</span><span class="metric-unit"> %</span></div>
+          <div class="metric-bar"><div class="metric-bar-fill" id="bar-cpu" style="width:0%"></div></div>
+        </div>
+        <div class="metric-card memory">
+          <div class="metric-label"><i class="fa-solid fa-memory mem-i"></i> Memory</div>
+          <div class="metric-value"><span id="val-mem">—</span><span class="metric-unit"> %</span></div>
+          <div class="metric-bar"><div class="metric-bar-fill" id="bar-mem" style="width:0%"></div></div>
+        </div>
+        <div class="metric-card temp">
+          <div class="metric-label"><i class="fa-solid fa-temperature-half temp-i"></i> Temperature</div>
+          <div class="metric-value"><span id="val-temp">—</span><span class="metric-unit"> °C</span></div>
+          <div class="metric-bar"><div class="metric-bar-fill" id="bar-temp" style="width:0%"></div></div>
+        </div>
+        <div class="metric-card power">
+          <div class="metric-label"><i class="fa-solid fa-bolt power-i"></i> Power Draw</div>
+          <div class="metric-value"><span id="val-pwr">—</span><span class="metric-unit"> W</span></div>
+          <div class="metric-bar"><div class="metric-bar-fill" id="bar-pwr" style="width:0%"></div></div>
+        </div>
+      </div>
+
+      <div class="charts-grid">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><i class="fa-solid fa-chart-line"></i> Live Performance</div>
+            <div class="time-pill">
+              <button class="active" onclick="setLimit(10,this)">10</button>
+              <button onclick="setLimit(30,this)">30</button>
+              <button onclick="setLimit(100,this)">100</button>
+            </div>
+          </div>
+          <div class="chart-wrap" style="height:280px"><canvas id="mainChart"></canvas></div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><i class="fa-solid fa-circle-dot"></i> CPU vs Memory</div>
+          </div>
+          <div class="chart-wrap" style="height:280px"><canvas id="scatterChart"></canvas></div>
+        </div>
+      </div>
+
+      <div class="bottom-grid">
+        <div class="card">
+          <div class="card-header"><div class="card-title"><i class="fa-solid fa-brain"></i> Diagnosis</div></div>
+          <div class="diagnosis-item">
+            <div class="diag-icon blue"><i class="fa-solid fa-circle-check"></i></div>
+            <div><div class="diag-label">Status</div><div class="diag-value" id="diag-status">—</div></div>
+          </div>
+          <div class="diagnosis-item">
+            <div class="diag-icon orange"><i class="fa-solid fa-magnifying-glass"></i></div>
+            <div><div class="diag-label">Root Cause</div><div class="diag-value" id="diag-cause">—</div></div>
+          </div>
+          <div class="diagnosis-item">
+            <div class="diag-icon blue"><i class="fa-solid fa-percent"></i></div>
+            <div><div class="diag-label">Confidence</div><div class="diag-value" id="diag-confidence">—</div></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><div class="card-title"><i class="fa-solid fa-chart-bar"></i> Session Stats</div></div>
+          <div class="diagnosis-item">
+            <div class="diag-icon blue"><i class="fa-solid fa-database"></i></div>
+            <div><div class="diag-label">Total Readings</div><div class="diag-value" id="stat-total">—</div></div>
+          </div>
+          <div class="diagnosis-item">
+            <div class="diag-icon red"><i class="fa-solid fa-triangle-exclamation"></i></div>
+            <div><div class="diag-label">Anomaly Count</div><div class="diag-value" id="stat-anomalies">—</div></div>
+          </div>
+          <div class="diagnosis-item">
+            <div class="diag-icon orange"><i class="fa-solid fa-percent"></i></div>
+            <div><div class="diag-label">Anomaly Rate</div><div class="diag-value" id="stat-rate">—</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ANOMALIES -->
+    <div class="section" id="section-anomalies">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title"><i class="fa-solid fa-triangle-exclamation"></i> Recent Anomaly Events</div>
+          <button class="btn btn-secondary" onclick="loadAnomalies()" style="font-size:12px;padding:6px 14px;">
+            <i class="fa-solid fa-rotate"></i> Refresh
+          </button>
+        </div>
+        <div id="anomaly-table-wrap">
+          <div class="empty-state"><i class="fa-solid fa-shield-check"></i>Loading…</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- HISTORY -->
+    <div class="section" id="section-history">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title"><i class="fa-solid fa-clock-rotate-left"></i> All Readings</div>
+          <a href="/api/export/" class="btn btn-success" style="font-size:12px;padding:6px 14px;text-decoration:none;">
+            <i class="fa-solid fa-download"></i> Export CSV
+          </a>
+        </div>
+        <div class="history-toolbar">
+          <input type="text" id="hist-search" placeholder="Search by cause…" oninput="debounceHistory()">
+          <select id="hist-status" onchange="loadHistory(1)">
+            <option value="all">All statuses</option>
+            <option value="Normal">Normal</option>
+            <option value="Suspicious">Suspicious</option>
+            <option value="Confirmed Anomaly">Confirmed Anomaly</option>
+            <option value="Memory Leak Suspected">Memory Leak Suspected</option>
+            <option value="CPU Instability Detected">CPU Instability Detected</option>
+            <option value="Abnormal Thermal Rise">Abnormal Thermal Rise</option>
+            <option value="Power Spike Detected">Power Spike Detected</option>
+          </select>
+          <button class="btn btn-secondary" onclick="loadHistory(1)" style="font-size:12px;padding:7px 14px;">
+            <i class="fa-solid fa-filter"></i> Filter
+          </button>
+        </div>
+        <div id="history-table-wrap">
+          <div class="empty-state"><i class="fa-solid fa-database"></i>Loading history…</div>
+        </div>
+        <div class="pagination" id="history-pagination" style="display:none">
+          <button id="hist-prev" onclick="histPage(-1)"><i class="fa-solid fa-chevron-left"></i></button>
+          <span id="hist-page-info">—</span>
+          <button id="hist-next" onclick="histPage(1)"><i class="fa-solid fa-chevron-right"></i></button>
+          <span style="margin-left:auto" id="hist-total-info"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- MANUAL TEST -->
+    <div class="section" id="section-manual-test">
+      <div class="card" style="max-width:600px">
+        <div class="card-header"><div class="card-title"><i class="fa-solid fa-flask"></i> Manual Analysis Test</div></div>
+        <p style="font-size:13px;color:var(--muted);margin-bottom:20px;">Enter server metrics manually to test the anomaly detection engine.</p>
+        <div class="form-grid">
+          <div class="form-group"><label>CPU (%)</label><input type="number" id="m-cpu" placeholder="0–100" min="0" max="100"></div>
+          <div class="form-group"><label>Memory (%)</label><input type="number" id="m-mem" placeholder="0–100" min="0" max="100"></div>
+          <div class="form-group"><label>Temperature (°C)</label><input type="number" id="m-temp" placeholder="20–120" min="20" max="120"></div>
+          <div class="form-group"><label>Power (W)</label><input type="number" id="m-pwr" placeholder="10–800" min="10" max="800"></div>
+        </div>
+        <button class="btn btn-primary" onclick="runManualTest()"><i class="fa-solid fa-play"></i> Run Test</button>
+        <div id="test-result"></div>
+      </div>
+    </div>
+
+    <!-- CSV UPLOAD -->
+    <div class="section" id="section-csv-upload">
+      <div class="card" style="max-width:600px">
+        <div class="card-header"><div class="card-title"><i class="fa-solid fa-file-csv"></i> CSV Analysis</div></div>
+        <p style="font-size:13px;color:var(--muted);margin-bottom:20px;">Upload a telemetry CSV for offline anomaly analysis.</p>
+        <div class="upload-zone" onclick="document.getElementById('csv-input').click()">
+          <i class="fa-solid fa-cloud-arrow-up"></i>
+          <p>Click to upload CSV file</p>
+          <p style="font-size:11px;margin-top:4px;">Columns: time, cpu, memory, temperature, power</p>
+        </div>
+        <input type="file" id="csv-input" accept=".csv" style="display:none" onchange="uploadCSV(this)">
+        <div id="upload-result"></div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+// ── STATE ────────────────────────────────────────────
+let limit = 30, refreshInterval = 2000, timer = null;
+let mainChart = null, scatterChart = null;
+let histCurrentPage = 1, histTotalPages = 1;
+let lastStatus = null;   // for toast detection
+let histDebounceTimer = null;
+
+const ANOMALY_STATUSES = new Set([
+  'Confirmed Anomaly','Memory Leak Suspected','CPU Instability Detected',
+  'Abnormal Thermal Rise','Power Spike Detected'
+]);
+
+// ── TOAST SYSTEM ─────────────────────────────────────
+function showToast(type, title, msg, duration=5000) {
+  const container = document.getElementById('toast-container');
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  const icons = { danger:'🚨', warn:'⚠️', success:'✅', info:'ℹ️' };
+  toast.innerHTML = `
+    <span class="toast-icon">${icons[type]||'ℹ️'}</span>
+    <div class="toast-body">
+      <div class="toast-title">${title}</div>
+      <div class="toast-msg">${msg}</div>
+    </div>
+    <button class="toast-close" onclick="removeToast(this.parentElement)">✕</button>
+    <div class="toast-progress"><div class="toast-progress-bar" style="width:100%;transition-duration:${duration}ms"></div></div>
+  `;
+  container.appendChild(toast);
+  // start progress bar
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      const bar = toast.querySelector('.toast-progress-bar');
+      if (bar) bar.style.width = '0%';
+    });
+  });
+  setTimeout(() => removeToast(toast), duration);
+}
+
+function removeToast(toast) {
+  if (!toast || !toast.parentElement) return;
+  toast.classList.add('removing');
+  setTimeout(() => toast.remove(), 300);
+}
+
+// ── CHARTS ───────────────────────────────────────────
+function initCharts() {
+  const mainCtx = document.getElementById('mainChart').getContext('2d');
+  mainChart = new Chart(mainCtx, {
+    type: 'line',
+    data: { labels: [], datasets: [
+      { label:'CPU (%)',    data:[], borderColor:'#58a6ff', borderWidth:2, tension:0.3, fill:false, pointRadius:0 },
+      { label:'Memory (%)',data:[], borderColor:'#3fb950', borderWidth:2, tension:0.3, fill:false, pointRadius:0, borderDash:[4,3] },
+      { label:'Temp (°C)', data:[], borderColor:'#d29922', borderWidth:2, tension:0.3, fill:false, pointRadius:0, yAxisID:'y2' },
+      { label:'Power (W)', data:[], borderColor:'#bc8cff', borderWidth:2, tension:0.3, fill:false, pointRadius:0, yAxisID:'y2', borderDash:[4,3] },
+      { label:'Anomaly',   data:[], borderColor:'transparent', backgroundColor:'#f85149', pointRadius:8, pointStyle:'crossRot', showLine:false },
+    ]},
+    options: {
+      responsive:true, maintainAspectRatio:false, animation:{duration:300},
+      interaction:{mode:'index', intersect:false},
+      plugins:{legend:{labels:{color:'#8b949e', boxWidth:24, font:{size:12}}}},
+      scales:{
+        x: {ticks:{color:'#8b949e', maxTicksLimit:8, font:{size:11}}, grid:{color:'#21262d'}},
+        y: {ticks:{color:'#8b949e', font:{size:11}}, grid:{color:'#21262d'}, title:{display:true, text:'CPU / Mem (%)', color:'#8b949e'}},
+        y2:{position:'right', ticks:{color:'#8b949e', font:{size:11}}, grid:{drawOnChartArea:false}, title:{display:true, text:'Temp / Power', color:'#8b949e'}},
+      }
+    }
+  });
+
+  const sctCtx = document.getElementById('scatterChart').getContext('2d');
+  scatterChart = new Chart(sctCtx, {
+    type:'scatter',
+    data:{datasets:[{label:'CPU vs Memory', data:[], backgroundColor:'rgba(88,166,255,0.5)', pointRadius:5}]},
+    options:{
+      responsive:true, maintainAspectRatio:false, animation:{duration:300},
+      plugins:{legend:{labels:{color:'#8b949e', font:{size:12}}}},
+      scales:{
+        x:{ticks:{color:'#8b949e', font:{size:11}}, grid:{color:'#21262d'}, title:{display:true, text:'CPU (%)', color:'#8b949e'}},
+        y:{ticks:{color:'#8b949e', font:{size:11}}, grid:{color:'#21262d'}, title:{display:true, text:'Memory (%)', color:'#8b949e'}},
+      }
+    }
+  });
+}
+
+// ── DATA FETCH ───────────────────────────────────────
+async function fetchLatest() {
+  try {
+    const r = await fetch(`/api/latest/?limit=${limit}`);
+    const d = await r.json();
+    if (!d.labels || !d.labels.length) return;
+
+    mainChart.data.labels = d.labels;
+    mainChart.data.datasets[0].data = d.cpu;
+    mainChart.data.datasets[1].data = d.memory;
+    mainChart.data.datasets[2].data = d.temperature;
+    mainChart.data.datasets[3].data = d.power;
+    mainChart.data.datasets[4].data = d.labels.map((_,i) => d.anomaly_indices.includes(i) ? d.cpu[i] : null);
+    mainChart.update();
+
+    scatterChart.data.datasets[0].data = d.cpu.map((c,i) => ({x:c, y:d.memory[i]}));
+    scatterChart.update();
+
+    if (!d.current) return;
+    const c = d.current;
+
+    document.getElementById('val-cpu').textContent  = c.cpu;
+    document.getElementById('val-mem').textContent  = c.memory;
+    document.getElementById('val-temp').textContent = c.temperature;
+    document.getElementById('val-pwr').textContent  = c.power;
+    document.getElementById('bar-cpu').style.width  = c.cpu + '%';
+    document.getElementById('bar-mem').style.width  = c.memory + '%';
+    document.getElementById('bar-temp').style.width = Math.min(c.temperature, 100) + '%';
+    document.getElementById('bar-pwr').style.width  = Math.min(c.power / 8, 100) + '%';
+
+    // Status banner
+    const banner = document.getElementById('status-banner');
+    if (ANOMALY_STATUSES.has(c.status)) {
+      banner.className = 'status-danger';
+      banner.textContent = '🚨 ' + c.status;
+    } else if (c.status === 'Suspicious') {
+      banner.className = 'status-warn';
+      banner.textContent = '⚠️ Suspicious';
+    } else {
+      banner.className = 'status-normal';
+      banner.textContent = '● Normal';
+    }
+
+    document.getElementById('diag-status').textContent     = c.status;
+    document.getElementById('diag-cause').textContent      = c.cause || 'None';
+    document.getElementById('diag-confidence').textContent = c.confidence || '0.00';
+    document.getElementById('last-updated').textContent    = 'Updated ' + c.timestamp;
+
+    // Toast on status change
+    if (lastStatus !== null && lastStatus !== c.status) {
+      if (ANOMALY_STATUSES.has(c.status)) {
+        showToast('danger', '🚨 Anomaly Detected', `${c.status} — Cause: ${c.cause || 'Unknown'}`, 8000);
+      } else if (c.status === 'Suspicious' && !ANOMALY_STATUSES.has(lastStatus)) {
+        showToast('warn', 'Suspicious Activity', 'System metrics are trending abnormally.', 5000);
+      } else if (c.status === 'Normal' && (ANOMALY_STATUSES.has(lastStatus) || lastStatus === 'Suspicious')) {
+        showToast('success', 'System Recovered', 'Status returned to Normal.', 4000);
+      }
+    }
+    lastStatus = c.status;
+
+  } catch(e) { console.warn('Fetch error:', e); }
+}
+
+async function fetchStats() {
+  try {
+    const r = await fetch('/api/stats/');
+    const d = await r.json();
+    document.getElementById('stat-total').textContent     = d.total_readings.toLocaleString();
+    document.getElementById('stat-anomalies').textContent = d.anomaly_count.toLocaleString();
+    document.getElementById('stat-rate').textContent      = d.anomaly_rate + '%';
+  } catch(e) {}
+}
+
+// ── ANOMALIES ────────────────────────────────────────
+async function loadAnomalies() {
+  const wrap = document.getElementById('anomaly-table-wrap');
+  try {
+    const r = await fetch('/api/anomalies/');
+    const d = await r.json();
+    if (!d.anomalies.length) {
+      wrap.innerHTML = '<div class="empty-state"><i class="fa-solid fa-shield-check"></i>No anomalies — system healthy!</div>';
+      return;
+    }
+    wrap.innerHTML = `
+      <table class="anomaly-table">
+        <thead><tr><th>Time</th><th>CPU</th><th>Mem</th><th>Temp</th><th>Status</th><th>Cause</th><th>Conf.</th></tr></thead>
+        <tbody>${d.anomalies.map(a => `
+          <tr>
+            <td style="color:var(--muted)">${a.timestamp}</td>
+            <td>${a.cpu}%</td><td>${a.memory}%</td><td>${a.temperature}°C</td>
+            <td><span class="badge badge-danger">${a.status}</span></td>
+            <td style="color:var(--muted)">${a.cause}</td>
+            <td>${a.confidence}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>`;
+  } catch(e) {
+    wrap.innerHTML = '<div class="empty-state"><i class="fa-solid fa-circle-exclamation"></i>Failed to load.</div>';
+  }
+}
+
+// ── HISTORY ──────────────────────────────────────────
+function statusBadge(status) {
+  if (ANOMALY_STATUSES.has(status)) return `<span class="badge badge-danger">${status}</span>`;
+  if (status === 'Suspicious') return `<span class="badge badge-warn">${status}</span>`;
+  return `<span class="badge badge-normal">${status}</span>`;
+}
+
+async function loadHistory(page=1) {
+  histCurrentPage = page;
+  const wrap    = document.getElementById('history-table-wrap');
+  const search  = document.getElementById('hist-search').value.trim();
+  const status  = document.getElementById('hist-status').value;
+  const params  = new URLSearchParams({ page, status_filter: status, search, page_size: 50 });
+
+  wrap.innerHTML = '<div class="empty-state"><i class="fa-solid fa-spinner fa-spin"></i> Loading…</div>';
+
+  try {
+    const r = await fetch('/api/history/?' + params);
+    const d = await r.json();
+
+    histTotalPages = d.pages || 1;
+
+    if (!d.records.length) {
+      wrap.innerHTML = '<div class="empty-state"><i class="fa-solid fa-inbox"></i>No records found.</div>';
+      document.getElementById('history-pagination').style.display = 'none';
+      return;
+    }
+
+    wrap.innerHTML = `
+      <table class="anomaly-table">
+        <thead><tr>
+          <th>Timestamp</th><th>CPU</th><th>Mem</th><th>Temp</th><th>Power</th>
+          <th>Status</th><th>Cause</th><th>Conf.</th>
+        </tr></thead>
+        <tbody>${d.records.map(r => `
+          <tr>
+            <td style="color:var(--muted);white-space:nowrap">${r.timestamp}</td>
+            <td>${r.cpu.toFixed(1)}%</td>
+            <td>${r.memory.toFixed(1)}%</td>
+            <td>${r.temperature.toFixed(1)}°C</td>
+            <td>${r.power.toFixed(1)}W</td>
+            <td>${statusBadge(r.status)}</td>
+            <td style="color:var(--muted)">${r.cause || '—'}</td>
+            <td>${r.confidence.toFixed(2)}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>`;
+
+    const pag = document.getElementById('history-pagination');
+    pag.style.display = 'flex';
+    document.getElementById('hist-page-info').textContent  = `Page ${d.current_page} of ${d.pages}`;
+    document.getElementById('hist-total-info').textContent = `${d.total.toLocaleString()} records`;
+    document.getElementById('hist-prev').disabled = d.current_page <= 1;
+    document.getElementById('hist-next').disabled = d.current_page >= d.pages;
+  } catch(e) {
+    wrap.innerHTML = '<div class="empty-state"><i class="fa-solid fa-circle-exclamation"></i>Failed to load history.</div>';
+  }
+}
+
+function histPage(delta) { loadHistory(histCurrentPage + delta); }
+
+function debounceHistory() {
+  clearTimeout(histDebounceTimer);
+  histDebounceTimer = setTimeout(() => loadHistory(1), 400);
+}
+
+// ── POLLING ──────────────────────────────────────────
+function startPolling() {
+  if (timer) clearInterval(timer);
+  fetchLatest(); fetchStats();
+  timer = setInterval(() => { fetchLatest(); fetchStats(); }, refreshInterval);
+}
+
+function changeInterval(val) { refreshInterval = parseInt(val); startPolling(); }
+
+function setLimit(n, btn) {
+  limit = n;
+  document.querySelectorAll('.time-pill button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+// ── ROUTING ──────────────────────────────────────────
+const sectionTitles = {
+  overview:'📊 Overview', anomalies:'🚨 Anomaly Events',
+  history:'📋 Reading History', 'manual-test':'🧪 Manual Test', 'csv-upload':'📂 CSV Upload',
+};
+
+function showSection(name, btn) {
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.getElementById('section-' + name).classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  document.getElementById('section-title').textContent = sectionTitles[name] || name;
+  if (name === 'anomalies') loadAnomalies();
+  if (name === 'history')   loadHistory(1);
+}
+
+// ── MANUAL TEST ──────────────────────────────────────
+async function runManualTest() {
+  const res = document.getElementById('test-result');
+  const cpu=document.getElementById('m-cpu').value, mem=document.getElementById('m-mem').value,
+        temp=document.getElementById('m-temp').value, pwr=document.getElementById('m-pwr').value;
+
+  if (!cpu||!mem||!temp||!pwr) { showResult(res,'warn','⚠️ Please fill in all fields.'); return; }
+  showResult(res,'info','<i class="fa-solid fa-spinner fa-spin"></i> Analyzing…');
+
+  try {
+    const r = await fetch('/api/manual-test/', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({cpu:+cpu, memory:+mem, temperature:+temp, power:+pwr})
+    });
+    const d = await r.json();
+    if (d.error) { showResult(res,'danger','❌ '+d.error); return; }
+    const result = d.result;
+    const isAnomaly = ANOMALY_STATUSES.has(result.status);
+    const type = isAnomaly ? 'danger' : result.status === 'Suspicious' ? 'warn' : 'success';
+    showResult(res, type, `
+      <strong>${isAnomaly?'🚨':result.status==='Suspicious'?'⚠️':'✅'} ${result.status}</strong><br>
+      Cause: ${result.cause||'None'} &nbsp;|&nbsp; Confidence: ${result.confidence||0}
+    `);
+  } catch(e) { showResult(res,'danger','❌ Request failed.'); }
+}
+
+async function uploadCSV(input) {
+  const file=input.files[0]; if (!file) return;
+  const res=document.getElementById('upload-result');
+  showResult(res,'info','<i class="fa-solid fa-spinner fa-spin"></i> Analyzing CSV…');
+  const form=new FormData(); form.append('file',file);
+  try {
+    const r=await fetch('/api/upload-csv/',{method:'POST',body:form});
+    const d=await r.json();
+    if (d.error) { showResult(res,'danger','❌ '+d.error); return; }
+    showResult(res,'success',`<strong>✅ Analysis Complete</strong><br><br>
+      <strong>Summary:</strong><br>${(d.summary||[]).map(s=>'• '+s).join('<br>')}<br><br>
+      <strong>Root Cause:</strong> ${d.root_cause||'None detected'}`);
+  } catch(e) { showResult(res,'danger','❌ Upload failed.'); }
+}
+
+function showResult(el,type,html) {
+  const colors = {
+    success:{bg:'rgba(63,185,80,.1)', border:'rgba(63,185,80,.3)', color:'#3fb950'},
+    warn:   {bg:'rgba(210,153,34,.1)',border:'rgba(210,153,34,.3)',color:'#d29922'},
+    danger: {bg:'rgba(248,81,73,.1)', border:'rgba(248,81,73,.3)', color:'#f85149'},
+    info:   {bg:'rgba(88,166,255,.1)',border:'rgba(88,166,255,.3)',color:'#58a6ff'},
+  };
+  const c=colors[type]||colors.info;
+  el.style.display='block';el.style.background=c.bg;
+  el.style.border='1px solid '+c.border;el.style.color=c.color;
+  el.style.borderRadius='8px';el.innerHTML=html;
+}
+
+// ── INIT ─────────────────────────────────────────────
+initCharts();
+startPolling();
+</script>
+</body>
+</html>
