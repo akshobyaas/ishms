@@ -4,6 +4,31 @@ A real-time system telemetry and anomaly detection platform built with Django. I
 
 ---
 
+## Screenshots
+
+### Dashboard — Normal State
+![Dashboard Normal](screenshots/dashboard_normal.png)
+
+### Dashboard — Anomaly Detected
+![Dashboard Anomaly](screenshots/dashboard_anomaly.png)
+
+### Dashboard — Suspicious State
+![Dashboard Suspicious](screenshots/dashboard_suspicious.png)
+
+### Live Metrics Panel
+![Metrics Panel](screenshots/metrics_panel.png)
+
+### Anomaly Events
+![Anomaly Events](screenshots/anomaly_events.png)
+
+### Manual Test
+![Manual Test](screenshots/manual_test.png)
+
+### CSV Upload & Offline Analysis
+![CSV Upload](screenshots/csv_upload.png)
+
+---
+
 ## Features
 
 - **Real-time monitoring** — collects system metrics every 2 seconds via `psutil`
@@ -38,6 +63,7 @@ telemetry_django/
 ├── manage.py                          # Django entry point
 ├── run.py                             # Starts collector + server together
 ├── requirements.txt
+├── screenshots/                       # README screenshots
 ├── telemetry/                         # Django project config
 │   ├── settings.py
 │   ├── urls.py
@@ -75,7 +101,7 @@ telemetry_django/
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/akshobyaas/ishms.git
+git clone https://github.com/your-username/ishms.git
 cd ishms/telemetry_django
 
 # 2. Create and activate a virtual environment
