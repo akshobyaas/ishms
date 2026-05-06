@@ -706,7 +706,7 @@ async function uploadCSV(input) {
     if (d.error) { showResult(res,'danger','❌ '+d.error); return; }
     showResult(res,'success',`<strong>✅ Analysis Complete</strong><br><br>
       <strong>Summary:</strong><br>${(d.summary||[]).map(s=>'• '+s).join('<br>')}<br><br>
-      <strong>Root Cause:</strong> ${d.root_cause||'None detected'}`);
+      <strong>Root Cause:</strong> ${d.data.root_cause.cause||'None detected'}`);
   } catch(e) { showResult(res,'danger','❌ Upload failed.'); }
 }
 
