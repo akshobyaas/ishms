@@ -21,13 +21,17 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         from dashboard.core.data_collector import get_data
-        from dashboard.models import TelemetryReading
+        from dashboard.models import ANOMALY_STATUSES, TelemetryReading
         from dashboard.services.analysis_service import run_analyze
 
         interval = options['interval']
         self.stdout.write(self.style.SUCCESS(
             f'Telemetry collection started (interval={interval}s). Ctrl+C to stop.'
         ))
+
+        # cpu_percent() measures since the previous call; wait one interval so
+        # the first reading isn't a meaningless 0 % or 100 %.
+        time.sleep(min(interval, 1.0))
 
         try:
             while True:
@@ -46,7 +50,7 @@ class Command(BaseCommand):
                     confidence=result.get('confidence', 0.0),
                 )
 
-                is_bad = result['status'] not in ('Normal', 'Suspicious')
+                is_bad = result['status'] in ANOMALY_STATUSES
                 style = self.style.ERROR if is_bad else self.style.SUCCESS
                 self.stdout.write(
                     f"CPU={data['cpu']:.1f}%  MEM={data['memory']:.1f}%  "

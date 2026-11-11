@@ -6,7 +6,7 @@ def get_history(status_filter="all", search="", page=1, page_size=50):
     Return a paginated, filterable list of telemetry readings from the DB.
     Called by the /api/history/ endpoint.
     """
-    qs = TelemetryReading.objects.order_by('-timestamp')
+    qs = TelemetryReading.objects.order_by('-timestamp', '-id')
 
     if status_filter and status_filter != "all":
         qs = qs.filter(status=status_filter)

@@ -1,11 +1,21 @@
-import threading
-import pandas as pd
-from dashboard.core.ml_model import train_model, predict
-from dashboard.core.root_cause import get_root_cause
+"""
+Combines the ML model and the rule-based checks into one verdict per reading.
 
-_model_trained = False
-_readings_at_last_train = 0
-_train_lock = threading.Lock()
+    critical rule fires (overheat / power spike / overload) -> that anomaly
+    ML flags the reading AND a pattern rule explains it     -> that anomaly
+    memory-leak pattern                                     -> Memory Leak Suspected
+    ML flags the reading, no rule explains it               -> Suspicious
+    CPU instability or a clear rising trend                 -> Suspicious
+    otherwise                                               -> Normal
+
+The ML model answers "is this unusual for this machine?"; the rules answer
+"what kind of problem is it?". A confirmed anomaly needs a concrete cause.
+"""
+
+import pandas as pd
+
+from dashboard.core import ml_model
+from dashboard.core.root_cause import CRITICAL_CAUSES, get_root_cause, recent_window, slope
 
 CAUSE_TO_STATUS = {
     "Memory Leak":     "Memory Leak Suspected",
@@ -15,57 +25,77 @@ CAUSE_TO_STATUS = {
     "System Overload": "Confirmed Anomaly",
 }
 
+TREND_WINDOW = 10
+CPU_TREND_SLOPE = 2.0      # % points per reading (~ +20 points over 10 readings)
+MEMORY_TREND_SLOPE = 0.5   # % points per reading (~ +5 points over 10 readings)
+ML_CAUSE = "Unusual Behaviour (ML)"
 
-def detect_trend(df):
-    if len(df) < 5:
+# IsolationForest flags anything unusual, including a machine that is *quieter*
+# than normal. Only treat an ML flag as a health problem if at least one metric
+# is meaningfully above its recent median.
+ELEVATION_MARGIN = {"cpu": 10.0, "memory": 3.0, "temperature": 5.0, "power": 15.0}
+
+
+def is_elevated(df, data):
+    window = recent_window(df, None, size=100)
+    if window.empty:
+        return True
+    median = window.median()
+    return any(float(data[k]) > median[k] + m for k, m in ELEVATION_MARGIN.items())
+
+
+def detect_trend(df, latest_data=None):
+    """Return a trend label if CPU or memory is clearly climbing, else None."""
+    window = recent_window(df, latest_data, size=TREND_WINDOW)
+    if len(window) < 5:
         return None
-    if df["cpu"].iloc[-1] > df["cpu"].iloc[-5]:
+    if slope(window["cpu"].values) > CPU_TREND_SLOPE:
         return "Increasing CPU Trend"
-    if df["memory"].iloc[-1] > df["memory"].iloc[-5]:
+    if slope(window["memory"].values) > MEMORY_TREND_SLOPE:
         return "Increasing Memory Trend"
     return None
 
 
-def analyze(data, df=None):
+def analyze(data, df=None, total_rows=None):
     """
-    Analyze a single telemetry reading against historical data.
+    Analyze a single reading against recent history.
 
-    Args:
-        data: dict with keys cpu, memory, temperature, power
-        df:   pandas DataFrame of historical readings (from DB query)
-              If None, analysis runs without ML (rules-only).
+    data:       dict with cpu, memory, temperature, power (not yet in df)
+    df:         DataFrame of recent stored readings, oldest first
+    total_rows: total readings stored, used for the retrain schedule
     """
-    global _model_trained, _readings_at_last_train
-
     if df is None:
-        df = pd.DataFrame()
+        df = pd.DataFrame(columns=["cpu", "memory", "temperature", "power"])
 
-    n = len(df)
+    model_ready = ml_model.ensure_model(df, total_rows)
+    ml_anomaly, ml_conf = ml_model.predict(data, df) if model_ready else (False, 0.0)
+    ml_anomaly = ml_anomaly and is_elevated(df, data)
 
-    with _train_lock:
-        if not _model_trained and n >= 30:
-            train_model(df)
-            _model_trained = True
-            _readings_at_last_train = n
-        elif _model_trained and n - _readings_at_last_train >= 50:
-            train_model(df)
-            _readings_at_last_train = n
-
-    is_anomaly, prob = predict(data, df) if _model_trained else (False, 0.0)
-
-    trend = detect_trend(df)
     root = get_root_cause(df, data)
-    cause_name = root.get("cause", "Unknown")
+    cause = root["cause"]
+    trend = detect_trend(df, data)
 
-    if is_anomaly:
-        status = CAUSE_TO_STATUS.get(cause_name, "Confirmed Anomaly")
-    elif trend:
+    if cause in CRITICAL_CAUSES:
+        status, conf = CAUSE_TO_STATUS[cause], max(root["confidence"], ml_conf)
+    elif ml_anomaly and cause in CAUSE_TO_STATUS:
+        status, conf = CAUSE_TO_STATUS[cause], ml_conf
+    elif ml_anomaly:
+        status, cause, conf = "Suspicious", ML_CAUSE, ml_conf
+        root["details"] = "Reading doesn't match this machine's recent normal behaviour"
+    elif cause == "Memory Leak":
+        status, conf = CAUSE_TO_STATUS[cause], root["confidence"]
+    elif cause == "CPU Instability" or trend:
         status = "Suspicious"
+        cause = cause if cause == "CPU Instability" else trend
+        conf = root["confidence"] if cause == "CPU Instability" else 0.5
     else:
-        status = "Normal"
+        status, cause = "Normal", "None"
+        conf = ml_conf if model_ready else 0.0
 
     return {
         "status": status,
-        "cause": cause_name if status != "Normal" else "None",
-        "confidence": round(prob if prob else root.get("confidence", 0), 2),
+        "cause": cause,
+        "confidence": round(float(conf), 2),
+        "details": root["details"] if status != "Normal" else "",
+        "model_ready": model_ready,
     }

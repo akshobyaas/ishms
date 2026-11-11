@@ -1,44 +1,48 @@
 import pandas as pd
+
 from dashboard.core.analyzer import analyze
 
+HISTORY_WINDOW = 500   # recent readings used for training and analysis
 
-def _get_history_df():
-    """Load recent readings from the DB into a DataFrame for ML training."""
+
+def _get_history_df(limit=HISTORY_WINDOW):
+    """
+    Load the most recent readings (oldest first) plus the total row count.
+    Only the last `limit` rows are loaded so each analysis stays fast as the
+    database grows.
+    """
     from dashboard.models import TelemetryReading
 
-    qs = TelemetryReading.objects.order_by('timestamp').values(
-        'cpu', 'memory', 'temperature', 'power', 'status'
+    total = TelemetryReading.objects.count()
+    rows = list(
+        TelemetryReading.objects.order_by('-timestamp', '-id')
+        .values('cpu', 'memory', 'temperature', 'power')[:limit]
     )
-    return pd.DataFrame.from_records(list(qs)) if qs.exists() else pd.DataFrame()
+    rows.reverse()
+    df = pd.DataFrame.from_records(rows, columns=['cpu', 'memory', 'temperature', 'power'])
+    return df, total
 
 
 def run_analyze(data):
-    """
-    Analyze a live telemetry reading against DB history.
-    Called by the collect_telemetry management command.
-    """
-    df = _get_history_df()
-    return analyze(data, df)
+    """Analyze a live reading. Called by the collect_telemetry command."""
+    df, total = _get_history_df()
+    return analyze(data, df, total_rows=total)
 
 
 def run_manual_test(cpu, memory, temperature, power):
-    """
-    Run anomaly detection for manually entered values.
-    Called by the manual-test API endpoint.
-    """
+    """Analyze manually entered values against the current history."""
     test_data = {
-        "time": None,
         "cpu": float(cpu),
         "memory": float(memory),
         "temperature": float(temperature),
         "power": float(power),
-        "temp_source": "manual",
-        "power_source": "manual",
     }
-    df = _get_history_df()
-    result = analyze(test_data, df)
+    df, total = _get_history_df()
+    result = analyze(test_data, df, total_rows=total)
     return {
-        "status": result.get("status"),
-        "cause": result.get("cause"),
-        "confidence": result.get("confidence"),
+        "status": result["status"],
+        "cause": result["cause"],
+        "confidence": result["confidence"],
+        "details": result["details"],
+        "model_ready": result["model_ready"],
     }

@@ -3,6 +3,10 @@ import random
 from datetime import datetime
 import requests
 
+# The first cpu_percent(interval=None) call always returns 0.0; prime it here
+# so the first stored reading is real.
+psutil.cpu_percent(interval=None)
+
 
 def get_real_temp_power():
     """Try to read real CPU temperature and power from LibreHardwareMonitor."""

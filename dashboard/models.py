@@ -1,5 +1,13 @@
 from django.db import models
 
+ANOMALY_STATUSES = frozenset({
+    'Confirmed Anomaly',
+    'Memory Leak Suspected',
+    'CPU Instability Detected',
+    'Abnormal Thermal Rise',
+    'Power Spike Detected',
+})
+
 
 class TelemetryReading(models.Model):
     STATUS_CHOICES = [
@@ -30,4 +38,4 @@ class TelemetryReading(models.Model):
         return f"[{self.timestamp:%Y-%m-%d %H:%M:%S}] CPU={self.cpu:.1f}% | {self.status}"
 
     def is_anomaly(self):
-        return self.status not in ('Normal', 'Suspicious')
+        return self.status in ANOMALY_STATUSES
