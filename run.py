@@ -3,7 +3,7 @@ import subprocess, sys, os, time, signal, argparse
 BASE = os.path.dirname(os.path.abspath(__file__))
 CMD  = [sys.executable, os.path.join(BASE, "manage.py")]
 
-parser = argparse.ArgumentParser(description="Start TelemetryOS")
+parser = argparse.ArgumentParser(description="Start ISHMS")
 parser.add_argument("--interval", type=float, default=2.0)
 args = parser.parse_args()
 
@@ -30,7 +30,7 @@ def shutdown(*_):
 signal.signal(signal.SIGINT, shutdown)
 signal.signal(signal.SIGTERM, shutdown)
 
-print("Starting TelemetryOS...\n" + "-"*40)
+print("Starting ISHMS...\n" + "-"*40)
 
 collector = start(CMD + ["collect_telemetry", f"--interval={args.interval}"])
 print(f"Collector → PID {collector.pid}")
