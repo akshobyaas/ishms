@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+
+# Local data — created by `python manage.py migrate` and the collector
+telemetry.db
+*.sqlite3
+ishms_model.joblib
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
